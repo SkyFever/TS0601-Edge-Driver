@@ -1,0 +1,9 @@
+name: ZigBee PC Remote Switch [TS0601]
+packageKey: pc-remote-switch-edge-driver
+description: Edge Driver for PC Remote Switch [_TZE204_6fk3gewc] / [TS0601]
+vendorSupportInformation: https://github.com/SkyFever/TS0601-Edge-Driver
+permissions:
+  zigbee: {}
+metadata:
+  license: Apache-2.0
+  sourceRepo: https://github.com/SkyFever/TS0601-Edge-Driver

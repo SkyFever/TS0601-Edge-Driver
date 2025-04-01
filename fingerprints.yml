@@ -1,0 +1,9 @@
+zigbeeGeneric:
+  - id: WETEN_PCPower
+    deviceLabel: WETEN PC Power Controller
+    manufacturerName: _TZE204_6fk3gewc
+    model: TS0601
+    clusters:
+      server:
+        - 0xEF00 # Tuya
+    deviceProfileName: pc-remote-switch

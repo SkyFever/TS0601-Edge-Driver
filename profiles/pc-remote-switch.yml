@@ -1,0 +1,79 @@
+name: pc-remote-switch
+components:
+  - id: main
+    label: Power
+    capabilities:
+      - id: switch
+      - id: refresh
+    categories:
+      - name: RemoteController
+  - id: mode_reset
+    label: Reset
+    capabilities:
+      - id: momentary
+    categories:
+      - name: RemoteController
+  - id: buzzer
+    label: Sound
+    capabilities:
+      - id: switch
+    categories:
+      - name: RemoteController
+  - id: relay_status
+    label: Relay Status
+    capabilities:
+      - id: switch
+    categories:
+      - name: RemoteController
+  - id: child_lock
+    label: Child Lock
+    capabilities:
+      - id: switch
+    categories:
+      - name: RemoteController
+  # - id: dpTest
+  #   label: DP Test
+  #   capabilities:
+  #   - id: momentary
+  #     version: 1
+  #   categories:
+  #     - name: Button
+
+preferences:
+  - name: resetMode
+    title: "Reset Mode"
+    description: "Select PC reset mode"
+    required: false
+    preferenceType: enumeration
+    definition:
+      options:
+        reset: "Restart PC"
+        force_restart: "Force Restart PC"
+      default: reset
+  # - name: testDpId
+  #   title: "Test DP ID"
+  #   description: "Enter DP ID for testing (1-255)"
+  #   required: false
+  #   preferenceType: integer
+  #   definition:
+  #     minimum: 1
+  #     maximum: 255
+  #     default: 1
+  # - name: testDpType
+  #   title: "Test DP Type"
+  #   description: "Enter DP type for testing (1-255)"
+  #   required: false
+  #   preferenceType: integer
+  #   definition:
+  #     minimum: 0
+  #     maximum: 255
+  #     default: 1
+  # - name: testDpValue
+  #   title: "Test DP Value"
+  #   description: "Enter value to send (0-255)"
+  #   required: false
+  #   preferenceType: integer
+  #   definition:
+  #     minimum: 0
+  #     maximum: 255
+  #     default: 1
