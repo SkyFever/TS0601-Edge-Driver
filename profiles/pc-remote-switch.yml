@@ -6,31 +6,23 @@ components:
       - id: switch
       - id: refresh
     categories:
-      - name: RemoteController
+      - name: SmartPlug
   - id: mode_reset
     label: Reset
     capabilities:
-      - id: momentary
-    categories:
-      - name: RemoteController
+      - id: switch
   - id: buzzer
     label: Sound
     capabilities:
       - id: switch
-    categories:
-      - name: RemoteController
   - id: relay_status
     label: Relay Status
     capabilities:
       - id: switch
-    categories:
-      - name: RemoteController
   - id: child_lock
     label: Child Lock
     capabilities:
       - id: switch
-    categories:
-      - name: RemoteController
   # - id: dpTest
   #   label: DP Test
   #   capabilities:
