@@ -34,9 +34,10 @@ local TUYA_PC_REMOTE_SWITCH_FINGERPRINTS = {
 
 -- Tuya DP (Data Points)
 local CLUSTER_TUYA = 0xEF00
-local SET_DATA = 0x00
+local TUYA_SET_DATA = 0x00
 local TUYA_SET_DATA_RESPONSE = 0x01
-local TUYA_SEND_DATA_REQUEST = 0x02
+local TUYA_REPORT_DATA = 0x02
+local TUYA_QUERY_DATA = 0x03
 local TUYA_STATE_CHANGE = 0x04
 local TUYA_SET_TIME = 0x24
 
@@ -74,7 +75,7 @@ local DP_TO_COMPONENT_MAP = {
 -- Component Type Mapping(for UI)
 local COMPONENT_TYPE_MAP = {
   [COMPONENT_MAIN] = "switch",
-  [COMPONENT_MODE_RESET] = "momentary",
+  [COMPONENT_MODE_RESET] = "switch",
   [COMPONENT_BUZZER] = "switch",
   [COMPONENT_RELAY_STATUS] = "switch",
   [COMPONENT_CHILD_LOCK] = "switch",
@@ -83,6 +84,23 @@ local COMPONENT_TYPE_MAP = {
 
 -- Packet ID for Tuya commands
 local packet_id = 0
+
+-- Debugging and Logging Configuration
+local DEBUG_ENABLE = false
+local INFO_ENABLE = true
+
+-- Conditional logging functions
+local function log_debug(message)
+  if DEBUG_ENABLE == true then
+    log.debug(message)
+  end
+end
+
+local function log_info(message)
+  if INFO_ENABLE == true then
+    log.info(message)
+  end
+end
 
 -- Debugging utility function
 local function dump_message(message)
@@ -138,11 +156,11 @@ end
 
 -- Tuya Command Sending Function
 local function send_tuya_command(device, dp, dp_type, fncmd) 
-  log.info(safe_format("Sending Tuya command - DP: %s, DP Type: %s, Value: %s", 
+  log_info(safe_format("Sending Tuya command - DP: %s, DP Type: %s, Value: %s", 
     bytes_to_hex(dp), bytes_to_hex(dp_type), bytes_to_hex(fncmd)))
   
   -- Generate ZCL Header
-  local zclh = zcl_messages.ZclHeader({cmd = data_types.ZCLCommandId(SET_DATA)})
+  local zclh = zcl_messages.ZclHeader({cmd = data_types.ZCLCommandId(TUYA_SET_DATA)})
   zclh.frame_ctrl:set_cluster_specific()
   zclh.frame_ctrl:set_disable_default_response()
   
@@ -190,10 +208,11 @@ end
 
 -- Function to request device status
 local function request_device_status(device)
-  log.info("===== Requesting device status =====")
+  log_info("===== Requesting device status (Query) =====")
   
   -- Configure Data structure for TUYA Protocol
-  local zclh = zcl_messages.ZclHeader({cmd = data_types.ZCLCommandId(TUYA_SEND_DATA_REQUEST)})
+  -- Use TUYA_QUERY_DATA (0x03) for requesting status
+  local zclh = zcl_messages.ZclHeader({cmd = data_types.ZCLCommandId(TUYA_QUERY_DATA)})
   zclh.frame_ctrl:set_cluster_specific()
   zclh.frame_ctrl:set_disable_default_response()
   
@@ -229,51 +248,42 @@ local function request_device_status(device)
     return false
   end
   
-  log.info("===== Device status request sent =====")
+  log_info("===== Device status query sent (cmd: 0x03) =====")
   return true
 end
 
 -- Device Initialization Handler
 local function device_init(driver, device)
-  log.info("===== Initializing PC Remote Switch device =====")
-  log.info(safe_format("Device ID: %s", device.id))
-  log.info(safe_format("Device Model: %s", device:get_model()))
-  log.info(safe_format("Device Manufacturer: %s", device:get_manufacturer()))
+  log_info("===== Initializing PC Remote Switch device =====")
+  log_info(safe_format("Device ID: %s", device.id))
+  log_info(safe_format("Device Model: %s", device:get_model()))
+  log_info(safe_format("Device Manufacturer: %s", device:get_manufacturer()))
   
   device:set_field("zigbee_fingerprints", TUYA_PC_REMOTE_SWITCH_FINGERPRINTS)
-  
-  -- Initialize device state
-  device:emit_event(capabilities.switch.switch.off())
-  
-  -- Initialize each component
-  for dp, component_id in pairs(DP_TO_COMPONENT_MAP) do
-    if component_id ~= COMPONENT_MAIN and device.profile.components[component_id] then
-      local component_type = COMPONENT_TYPE_MAP[component_id]
-      if component_type == "switch" then
-        device:emit_component_event(
-          device.profile.components[component_id],
-          capabilities.switch.switch.off()
-        )
-      end
-    end
-  end
   
   -- Request device status (initial state synchronization)
   device.thread:call_with_delay(1, function(d)
     request_device_status(device)
   end)
+
+  -- Setup periodic polling (every 2 minutes)
+  -- This ensures the state is synchronized even if reporting fails
+  device.thread:call_on_schedule(120, function()
+    log_info("Periodic polling for device status")
+    request_device_status(device)
+  end, "polling_schedule")
   
-  log.info("===== Device initialization complete =====")
+  log_info("===== Device initialization complete =====")
 end
 
 -- Device Addition Handler
 local function device_added(driver, device)
-  log.info("===== Device added =====")
-  log.info(safe_format("Device ID: %s", device.id))
-  log.info(safe_format("Device Model: %s", device:get_model()))
-  log.info(safe_format("Device Manufacturer: %s", device:get_manufacturer()))
+  log_info("===== Device added =====")
+  log_info(safe_format("Device ID: %s", device.id))
+  log_info(safe_format("Device Model: %s", device:get_model()))
+  log_info(safe_format("Device Manufacturer: %s", device:get_manufacturer()))
   
-  -- Initialize device state
+  -- Initialize device state to OFF for a new device
   device:emit_event(capabilities.switch.switch.off())
   
   -- Initialize each component
@@ -294,28 +304,28 @@ local function device_added(driver, device)
     request_device_status(device)
   end)
   
-  log.info("===== Device addition complete =====")
+  log_info("===== Device addition complete =====")
 end
 
 -- Device Info Changed Handler
 local function device_info_changed(driver, device, event, args)
-  log.debug("===== Device info changed =====")
+  log_debug("===== Device info changed =====")
   
   -- Logging device information
   if event then
-    log.debug(safe_format("Event type: %s", type(event)))
+    log_debug(safe_format("Event type: %s", type(event)))
     if type(event) == "string" then
-      log.debug(safe_format("Event: %s", event))
+      log_debug(safe_format("Event: %s", event))
     elseif type(event) == "table" then
-      log.debug(safe_format("Event: %s", dump_message(event)))
+      log_debug(safe_format("Event: %s", dump_message(event)))
     end
   end
   
   -- Logging arguments
   if args then
-    log.debug(safe_format("Args type: %s", type(args)))
+    log_debug(safe_format("Args type: %s", type(args)))
     if type(args) == "table" then
-      log.debug(safe_format("Args: %s", dump_message(args)))
+      log_debug(safe_format("Args: %s", dump_message(args)))
     end
   end
   
@@ -327,7 +337,7 @@ end
 
 -- Tuya Data receive Handler
 local function tuya_cluster_handler(driver, device, zb_rx)
-  log.info("===== Received Tuya data =====")
+  log_info("===== Received Tuya data =====")
   
   -- Tuya Data Processing
   if not zb_rx.body or not zb_rx.body.zcl_body then
@@ -355,7 +365,7 @@ local function tuya_cluster_handler(driver, device, zb_rx)
   local fncmd = rx:sub(7, 7 + fncmd_len - 1)
   
   -- Print debug information
-  log.info(safe_format("DP: %s, DP Type: %s, Value: %s", 
+  log_info(safe_format("DP: %s, DP Type: %s, Value: %s", 
     bytes_to_hex(dp), bytes_to_hex(dp_type), bytes_to_hex(fncmd)))
   
   -- DP ID
@@ -364,11 +374,11 @@ local function tuya_cluster_handler(driver, device, zb_rx)
   if component_id then
     -- Check Component Type
     local component_type = COMPONENT_TYPE_MAP[component_id]
-    log.info(safe_format("Processing state for component: %s (type: %s)", component_id, component_type))
+    log_info(safe_format("Processing state for component: %s (type: %s)", component_id, component_type))
     
     if dp_type == DP_TYPE_BOOL then
       local switch_state = string.byte(fncmd, 1) == 1 and "on" or "off"
-      log.info(safe_format("State for %s: %s", component_id, switch_state))
+      log_info(safe_format("State for %s: %s", component_id, switch_state))
       
       -- 해당 컴포넌트에 이벤트 발생
       if component_type == "switch" then
@@ -388,53 +398,114 @@ local function tuya_cluster_handler(driver, device, zb_rx)
   else
     log.warn(safe_format("Unhandled DP: %s", bytes_to_hex(dp)))
     -- Try to handle unknown DP
-    log.info(safe_format("Unknown DP %s with value: %s", bytes_to_hex(dp), bytes_to_hex(fncmd)))
+    log_info(safe_format("Unknown DP %s with value: %s", bytes_to_hex(dp), bytes_to_hex(fncmd)))
   end
   
-  log.info("===== Tuya data processing complete =====")
+  log_info("===== Tuya data processing complete =====")
+end
+
+-- Command to handle momentary action
+local function handle_momentary_action(device, reset_type)
+  log_info(safe_format("===== Run Momentary Command: %s =====", reset_type))
+  
+  local dp
+  local dp_type
+  local value
+  
+  if reset_type == "reset" then
+    dp = "\x65"  -- DP_MODE_RESET
+    dp_type = "\x04"  -- DP_TYPE_ENUM
+    value = "\x01"  -- SOFT_RESET
+    log_info("Restart PC")
+  elseif reset_type == "force_restart" then
+    dp = "\x65"  -- DP_MODE_RESET
+    dp_type = "\x04"  -- DP_TYPE_ENUM
+    value = "\x00"  -- FORCE_RESET
+    log_info("Force Restart PC")
+  else
+    log.error("Unknown Type: " .. reset_type)
+    return false
+  end
+  
+  log_info(safe_format("Send Command - DP ID: %d, Type: %s, Value: %d", 
+  dp, bytes_to_hex(dp_type), value))
+
+  -- Send command
+  local success = send_tuya_command(device, dp, dp_type, value)
+  
+  if success then
+    log_info("Successfully sent momentary command")
+  else
+    log.error("Failed to send momentary command")
+  end
+  
+  return success
 end
 
 -- Switch On Command Handler
 local function handle_switch_on(driver, device, command)
-  log.info("===== Handling switch on command =====")
-  log.info(safe_format("Component: %s", command.component))
-  
-  -- DP ID
-  local dp = DP_SWITCH -- Default Value
-  
-  -- Set DP ID based on component
-  for dp_id, component in pairs(DP_TO_COMPONENT_MAP) do
-    if component == command.component then
-      dp = dp_id
-      break
-    end
-  end
-  
-  -- Send Switch On command in Tuya format
-  local fncmd = "\x01" -- 1 = On
-  
-  -- Send command
-  local success = send_tuya_command(device, dp, DP_TYPE_BOOL, fncmd)
-  
-  -- Update state
-  if success then
-    if command.component == COMPONENT_MAIN then
-      device:emit_event(capabilities.switch.switch.on())
-    else
-      local component = device.profile.components[command.component]
+  log_info("===== Handling switch on command =====")
+  log_info(safe_format("Component: %s", command.component))
+
+  -- If component is mode_reset, update state and instantly turn off
+  if command.component == COMPONENT_MODE_RESET then
+    local reset_mode = device.preferences.resetMode or "reset"
+    local success = handle_momentary_action(device, reset_mode)
+
+    if success then
+      -- Emit event for the mode_reset component, not main switch
+      local component = device.profile.components[COMPONENT_MODE_RESET]
       if component then
+        -- Emit event for temporary state
         device:emit_component_event(component, capabilities.switch.switch.on())
+        -- Wait for 1 second and then turn off
+        device.thread:call_with_delay(1, function()
+          device:emit_component_event(component, capabilities.switch.switch.off())
+        end)
       end
     end
+    log_info("===== Switch on command sent for mode reset =====")
   end
   
-  log.info("===== Switch on command sent =====")
+  -- If component is not mode_reset, proceed with normal switch on command
+  if command.component ~= COMPONENT_MODE_RESET then
+    -- DP ID
+    local dp = DP_SWITCH -- Default Value
+    
+    -- Set DP ID based on component
+    for dp_id, component in pairs(DP_TO_COMPONENT_MAP) do
+      if component == command.component then
+        dp = dp_id
+        break
+      end
+    end
+    
+    -- Send Switch On command in Tuya format
+    local fncmd = "\x01" -- 1 = On
+    
+    -- Send command
+    local success = send_tuya_command(device, dp, DP_TYPE_BOOL, fncmd)
+    
+    -- Update state
+    if success then
+      if command.component == COMPONENT_MAIN then
+        device:emit_event(capabilities.switch.switch.on())
+      else
+        local component = device.profile.components[command.component]
+        if component then
+          device:emit_component_event(component, capabilities.switch.switch.on())
+        end
+      end
+    end
+  
+    log_info("===== Switch on command sent =====")
+  end
 end
 
 -- Switch Off Command Handler
 local function handle_switch_off(driver, device, command)
-  log.info("===== Handling switch off command =====")
-  log.info(safe_format("Component: %s", command.component))
+  log_info("===== Handling switch off command =====")
+  log_info(safe_format("Component: %s", command.component))
   
   -- DP ID
   local dp = DP_SWITCH -- Default Value
@@ -465,51 +536,13 @@ local function handle_switch_off(driver, device, command)
     end
   end
   
-  log.info("===== Switch off command sent =====")
-end
-
--- Command to handle reset action
-local function handle_reset_action(device, reset_type)
-  log.info(safe_format("===== Run Reset Command: %s =====", reset_type))
-  
-  local dp
-  local dp_type
-  local value
-  
-  if reset_type == "reset" then
-    dp = "\x65"  -- DP_MODE_RESET
-    dp_type = "\x04"  -- DP_TYPE_ENUM
-    value = "\x01"  -- SOFT_RESET
-    log.info("Restart PC")
-  elseif reset_type == "force_restart" then
-    dp = "\x65"  -- DP_MODE_RESET
-    dp_type = "\x04"  -- DP_TYPE_ENUM
-    value = "\x00"  -- FORCE_RESET
-    log.info("Force Restart PC")
-  else
-    log.error("Unknown Type: " .. reset_type)
-    return false
-  end
-  
-  log.info(safe_format("Send Command - DP ID: %d, Type: %s, Value: %d", 
-  dp, bytes_to_hex(dp_type), value))
-
-  -- Send command
-  local success = send_tuya_command(device, dp, dp_type, value)
-  
-  if success then
-    log.info("Successfully sent reset command")
-  else
-    log.error("Failed to send reset command")
-  end
-  
-  return success
+  log_info("===== Switch off command sent =====")
 end
 
 -- Momentary Push Command Handler
 local function handle_momentary_push(driver, device, command)
-  log.info("===== Handling momentary push command =====")
-  log.info(safe_format("Component: %s", command.component))
+  log_info("===== Handling momentary push command =====")
+  log_info(safe_format("Component: %s", command.component))
 
   if command.component == COMPONENT_DP_TEST then
     -- Values from preferences
@@ -525,7 +558,7 @@ local function handle_momentary_push(driver, device, command)
     if not test_dp_type then test_dp_type = DP_TYPE_BOOL end
     if not test_dp_value then test_dp_value = 1 end
     
-    log.info(safe_format("Sending test command - DP ID: %d, Type: %d, Value: %d", test_dp_id, test_dp_type, test_dp_value))
+    log_info(safe_format("Sending test command - DP ID: %d, Type: %d, Value: %d", test_dp_id, test_dp_type, test_dp_value))
     
     -- Convert DP ID to char
     local dp_char = string.char(test_dp_id)
@@ -540,7 +573,7 @@ local function handle_momentary_push(driver, device, command)
     local success = send_tuya_command(device, dp_char, dp_type_char, value_char)
     
     if success then
-      log.info("Test command sent successfully!")
+      log_info("Test command sent successfully!")
     else
       log.error("Failed to send test command")
     end
@@ -548,56 +581,56 @@ local function handle_momentary_push(driver, device, command)
     return
   end
 
-  -- Check if the component is for reset action
-  if command.component == COMPONENT_MODE_RESET then
-    local reset_mode = device.preferences.resetMode or "reset"
-    return handle_reset_action(device, reset_mode)
-  end
+  -- -- Check if the component is for reset action
+  -- if command.component == COMPONENT_MODE_RESET then
+  --   local reset_mode = device.preferences.resetMode or "reset"
+  --   return handle_momentary_action(device, reset_mode)
+  -- end
   
-  log.info("===== Momentary push command sent =====")
+  log_info("===== Momentary push command sent =====")
 end
 
 -- Device Refresh Command Handler
 local function handle_refresh(driver, device, command)
-  log.info("===== Handling refresh command =====")
+  log_info("===== Handling refresh command =====")
   
   -- Request device status
   request_device_status(device)
   
-  log.info("===== Refresh command sent =====")
+  log_info("===== Refresh command sent =====")
 end
 
 -- Zigbee Message Handler
 local function handle_all_zigbee_messages(driver, device, zb_rx)
-  log.debug("===== Received Zigbee message =====")
+  log_debug("===== Received Zigbee message =====")
   
   -- Address Header Info Logging
   if zb_rx and zb_rx.address_header then
     if zb_rx.address_header.profile_id then
-      log.debug(safe_format("Profile ID: 0x%04X", zb_rx.address_header.profile_id))
+      log_debug(safe_format("Profile ID: 0x%04X", zb_rx.address_header.profile_id))
     end
     
     if zb_rx.address_header.cluster_id then
-      log.debug(safe_format("Cluster ID: 0x%04X", zb_rx.address_header.cluster_id))
+      log_debug(safe_format("Cluster ID: 0x%04X", zb_rx.address_header.cluster_id))
     end
     
     if zb_rx.address_header.source_endpoint and zb_rx.address_header.source_endpoint.value then
-      log.debug(safe_format("Source Endpoint: %d", zb_rx.address_header.source_endpoint.value))
+      log_debug(safe_format("Source Endpoint: %d", zb_rx.address_header.source_endpoint.value))
     end
     
     if zb_rx.address_header.dest_endpoint and zb_rx.address_header.dest_endpoint.value then
-      log.debug(safe_format("Destination Endpoint: %d", zb_rx.address_header.dest_endpoint.value))
+      log_debug(safe_format("Destination Endpoint: %d", zb_rx.address_header.dest_endpoint.value))
     end
   end
   
   -- ZCL Header Info Logging
   if zb_rx and zb_rx.body and zb_rx.body.zcl_header then
     if zb_rx.body.zcl_header.cmd and zb_rx.body.zcl_header.cmd.value then
-      log.debug(safe_format("ZCL Command ID: 0x%02X", zb_rx.body.zcl_header.cmd.value))
+      log_debug(safe_format("ZCL Command ID: 0x%02X", zb_rx.body.zcl_header.cmd.value))
     end
     
     if zb_rx.body.zcl_header.frame_ctrl and zb_rx.body.zcl_header.frame_ctrl.value then
-      log.debug(safe_format("ZCL Frame Type: 0x%02X", zb_rx.body.zcl_header.frame_ctrl.value))
+      log_debug(safe_format("ZCL Frame Type: 0x%02X", zb_rx.body.zcl_header.frame_ctrl.value))
     end
   end
 end
@@ -614,9 +647,10 @@ local tuya_pc_remote_switch = ZigbeeDriver(
     zigbee_handlers = {
       cluster = {
         [CLUSTER_TUYA] = {
-          [TUYA_SEND_DATA_REQUEST] = tuya_cluster_handler,
-          [TUYA_SET_DATA_RESPONSE] = handle_all_zigbee_messages,
-          [TUYA_STATE_CHANGE] = tuya_cluster_handler
+          [TUYA_SET_DATA_RESPONSE] = tuya_cluster_handler, -- 0x01
+          [TUYA_REPORT_DATA] = tuya_cluster_handler,       -- 0x02
+          [TUYA_QUERY_DATA] = tuya_cluster_handler,        -- 0x03
+          [TUYA_STATE_CHANGE] = tuya_cluster_handler        -- 0x04
         }
       },
       attr = {
